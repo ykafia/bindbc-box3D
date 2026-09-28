@@ -65,3 +65,12 @@ Box3D library, with samples, benchmarks, tests, and docs disabled. It prints
 the platform library path when the build succeeds. Put that library on the OS
 loader's search path for `loadBox3D()`, or pass its full path to
 `loadBox3D(const(char)*)`.
+
+`source/app.d` is a small D usage example. Pass the shared-library path after
+`--` when running it:
+
+```powershell
+dub run -- build/box3d-shared/bin/box3d.dll
+```
+
+On Linux and macOS, pass the `.so` or `.dylib` path printed by the build helper.

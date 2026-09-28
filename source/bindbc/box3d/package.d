@@ -2378,6 +2378,8 @@ alias b3CreateConeFn = extern(C) b3HullData* function(float, float, float, int);
 __gshared b3CreateConeFn b3CreateCone;
 alias b3CreateRockFn = extern(C) b3HullData* function(float);
 __gshared b3CreateRockFn b3CreateRock;
+alias b3CreateComplexHullFn = extern(C) b3HullData* function(float);
+__gshared b3CreateComplexHullFn b3CreateComplexHull;
 alias b3CreateHullFn = extern(C) b3HullData* function(const(b3Vec3)*, int, int);
 __gshared b3CreateHullFn b3CreateHull;
 alias b3CloneHullFn = extern(C) b3HullData* function(const(b3HullData)*);
@@ -2670,8 +2672,6 @@ alias b3World_GetWorkerCountFn = extern(C) int function(b3WorldId);
 __gshared b3World_GetWorkerCountFn b3World_GetWorkerCount;
 alias b3World_DumpMemoryStatsFn = extern(C) void function(b3WorldId);
 __gshared b3World_DumpMemoryStatsFn b3World_DumpMemoryStats;
-alias b3World_DumpShapeBoundsFn = extern(C) void function(b3WorldId, b3BodyType);
-__gshared b3World_DumpShapeBoundsFn b3World_DumpShapeBounds;
 alias b3World_EnableSpeculativeFn = extern(C) void function(b3WorldId, bool);
 __gshared b3World_EnableSpeculativeFn b3World_EnableSpeculative;
 
@@ -3560,6 +3560,7 @@ private void bindModuleSymbols(bindbc.loader.sharedlib.SharedLib lib) @nogc noth
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3CreateCylinder, "b3CreateCylinder");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3CreateCone, "b3CreateCone");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3CreateRock, "b3CreateRock");
+    bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3CreateComplexHull, "b3CreateComplexHull");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3CreateHull, "b3CreateHull");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3CloneHull, "b3CloneHull");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3CloneAndTransformHull, "b3CloneAndTransformHull");
@@ -3698,7 +3699,6 @@ private void bindModuleSymbols(bindbc.loader.sharedlib.SharedLib lib) @nogc noth
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3World_SetWorkerCount, "b3World_SetWorkerCount");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3World_GetWorkerCount, "b3World_GetWorkerCount");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3World_DumpMemoryStats, "b3World_DumpMemoryStats");
-    bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3World_DumpShapeBounds, "b3World_DumpShapeBounds");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3World_EnableSpeculative, "b3World_EnableSpeculative");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3CreateRecording, "b3CreateRecording");
     bindbc.loader.sharedlib.bindSymbol(lib, cast(void**)&b3DestroyRecording, "b3DestroyRecording");
@@ -4156,6 +4156,7 @@ private void unbindModuleSymbols() @nogc nothrow
     b3CreateCylinder = null;
     b3CreateCone = null;
     b3CreateRock = null;
+    b3CreateComplexHull = null;
     b3CreateHull = null;
     b3CloneHull = null;
     b3CloneAndTransformHull = null;
@@ -4294,7 +4295,6 @@ private void unbindModuleSymbols() @nogc nothrow
     b3World_SetWorkerCount = null;
     b3World_GetWorkerCount = null;
     b3World_DumpMemoryStats = null;
-    b3World_DumpShapeBounds = null;
     b3World_EnableSpeculative = null;
     b3CreateRecording = null;
     b3DestroyRecording = null;

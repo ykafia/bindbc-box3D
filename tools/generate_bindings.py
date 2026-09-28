@@ -25,6 +25,7 @@ HEADERS = (
     "types.h",
     "box3d.h",
 )
+UNIMPLEMENTED_API = {"b3World_DumpShapeBounds"}
 
 
 def strip_comments(source: str) -> str:
@@ -346,15 +347,23 @@ def render_header_module(
         declaration
         for declaration in find_api_declarations(dstep_output, callback_parameters)
         if declaration["name"] in owned_symbols
+        or declaration["name"] in UNIMPLEMENTED_API
     ]
 
-    symbols = [str(declaration["name"]) for declaration in declarations]
+    symbols = [
+        str(declaration["name"])
+        for declaration in declarations
+        if declaration["name"] not in UNIMPLEMENTED_API
+    ]
     if len(symbols) != len(set(symbols)):
         raise RuntimeError("DStep output contains duplicate Box3D API declarations")
 
     generated = dstep_output
     for declaration in reversed(declarations):
         name = str(declaration["name"])
+        if name in UNIMPLEMENTED_API:
+            generated = generated[: int(declaration["start"])] + generated[int(declaration["end"]):]
+            continue
         function_type = str(declaration["function_type"])
         replacement = f"alias {name}Fn = {function_type};\n__gshared {name}Fn {name};\n"
         generated = generated[: int(declaration["start"])] + replacement + generated[int(declaration["end"]):]
@@ -561,6 +570,7 @@ def main() -> int:
         all_symbols = set()
         for header in header_paths:
             all_symbols.update(api_names_in_header(header, args.double_precision))
+        all_symbols.difference_update(UNIMPLEMENTED_API)
         try:
             macro_constants = extract_macro_constants(
                 [submodule / "include" / "box3d" / name for name in (
