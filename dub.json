@@ -1,0 +1,12 @@
+{
+	"description": "A minimal D application.",
+	"dependencies": {
+		"bindbc-loader": "~>1.1.5"
+	},
+	"authors": [
+		"kafia"
+	],
+	"copyright": "Copyright © 2026, kafia",
+	"license": "proprietary",
+	"name": "bindbc-box3d"
+}
