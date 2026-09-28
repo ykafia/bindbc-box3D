@@ -1,8 +1,22 @@
 {
 	"description": "A minimal D application.",
 	"dependencies": {
-		"bindbc-loader": "~>1.1.5"
+		"bindbc-loader": "~>1.1.5",
+		"raylib-d": "~>6.0.1"
 	},
+	"libs": [
+		"raylib"
+	],
+	"lflags-posix": [
+		"-L."
+	],
+	"lflags-osx": [
+		"-rpath",
+		"@executable_path/"
+	],
+	"lflags-linux": [
+		"-rpath=$$ORIGIN"
+	],
 	"authors": [
 		"kafia"
 	],

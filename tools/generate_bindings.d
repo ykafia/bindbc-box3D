@@ -146,6 +146,19 @@ int main(string[] args)
 	import std.file : mkdirRecurse;
 	mkdirRecurse(tempDir);
 
+	// A stub math.h shadows the platform's real one so parsing never pulls in unrelated CRT
+	// declarations (e.g. MinGW's locale internals); only sqrtf/remainderf are actually used.
+	auto stubIncludeDir = buildPath(tempDir, "compat_include");
+	mkdirRecurse(stubIncludeDir);
+	write(buildPath(stubIncludeDir, "math.h"), "#pragma once\nfloat sqrtf(float);\nfloat remainderf(float, float);\n");
+	string[] extraClangArgs = ["-I" ~ stubIncludeDir];
+
+	// DStep's bundled libclang doesn't reliably auto-detect its resource directory, so tell it
+	// explicitly where Clang's own freestanding headers (stdint.h, stddef.h, ...) live.
+	auto resourceDirResult = execute([clang, "-print-resource-dir"]);
+	if (resourceDirResult.status == 0)
+		extraClangArgs ~= "-resource-dir=" ~ strip(resourceDirResult.output);
+
 	auto preprocessed = buildPath(tempDir, "box3d.h");
 	auto translated = buildPath(tempDir, "box3d.d");
 	auto includeArgument = appender!string;
@@ -154,12 +167,13 @@ int main(string[] args)
 	string[] clangArgs = [clang, "-E", "-P", "-x", "c", "-DNDEBUG", includeArgument.data];
 	if (doublePrecision)
 		clangArgs ~= "-DBOX3D_DOUBLE_PRECISION";
+	clangArgs ~= extraClangArgs;
 	clangArgs ~= [headers[$ - 1], "-o", preprocessed];
 	auto result = execute(clangArgs);
 	if (result.status != 0)
 		return reportProcessError("Clang", result);
 
-	result = runDstep(dstep, preprocessed, translated);
+	result = runDstep(dstep, preprocessed, translated, extraClangArgs);
 	if (result.status != 0)
 		return reportProcessError("DStep", result);
 
@@ -226,7 +240,7 @@ int main(string[] args)
 	generated = moduleOutput.data;
 
 	string[] macroHeaders = [headers[0], headers[4], headers[2], headers[5]];
-	string macroText = extractMacroConstants(macroHeaders, dstep, tempDir);
+	string macroText = extractMacroConstants(macroHeaders, dstep, tempDir, extraClangArgs);
 	auto externIndex = generated.indexOf("extern (C):");
 	if (externIndex < 0)
 	{
@@ -651,7 +665,7 @@ string removeDuplicateAliases(string source)
 	return output.data;
 }
 
-string extractMacroConstants(string[] headers, string dstep, string tempDir)
+string extractMacroConstants(string[] headers, string dstep, string tempDir, string[] extraClangArgs = [])
 {
 	string[string] constants;
 	string[] constantOrder;
@@ -662,7 +676,7 @@ string extractMacroConstants(string[] headers, string dstep, string tempDir)
 		fileName.put(stripExtension(baseName(header)));
 		fileName.put(".d");
 		auto translated = buildPath(tempDir, fileName.data);
-		auto result = runDstep(dstep, header, translated);
+		auto result = runDstep(dstep, header, translated, extraClangArgs);
 		if (result.status != 0)
 		{
 			auto message = appender!string;
@@ -813,14 +827,19 @@ void unloadBox3D() @nogc nothrow
 `.replace("{binds}", binds.data).replace("{clears}", clears.data);
 }
 
-auto runDstep(string executable, string input, string output)
+auto runDstep(string executable, string input, string output, string[] extraClangArgs = [])
 {
 	auto args = [executable, input, "-o", output];
+	if (extraClangArgs.length)
+		args ~= "--" ~ extraClangArgs;
 	try return execute(args);
 	catch (Exception error)
 	{
 		if (executable != "dstep") throw error;
-		return execute(["dub", "run", "dstep", "--", input, "-o", output]);
+		auto dubArgs = ["dub", "run", "dstep", "--", input, "-o", output];
+		if (extraClangArgs.length)
+			dubArgs ~= "--" ~ extraClangArgs;
+		return execute(dubArgs);
 	}
 }
 
@@ -881,7 +900,8 @@ int buildBox3dShared(string cmake, string generator, string config, string osxAr
 	if (result.status != 0) return reportProcessError("CMake build", result);
 
 	string[] libraryNames;
-	version (Windows) libraryNames = ["box3d.dll"];
+	// MinGW toolchains (used as a fallback when MSVC is unavailable) keep the "lib" prefix.
+	version (Windows) libraryNames = ["box3d.dll", "libbox3d.dll"];
 	else version (OSX) libraryNames = ["libbox3d.dylib"];
 	else libraryNames = ["libbox3d.so"];
 	string[] libraries;
