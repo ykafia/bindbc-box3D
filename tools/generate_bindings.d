@@ -2,7 +2,7 @@
 module tools.generate_bindings;
 
 import std.array : Appender, appender, array, join;
-import std.file : exists, readText, rmdirRecurse, write;
+import std.file : dirEntries, exists, mkdirRecurse, readText, rmdirRecurse, SpanMode, write;
 import std.path : absolutePath, baseName, buildPath, dirName, extension, relativePath, stripExtension;
 import std.process : execute;
 import std.stdio : stderr, writeln;
@@ -26,6 +26,11 @@ int main(string[] args)
 	auto outputPath = buildPath(root, "source", "bindbc", "box3d", "package.d");
 	string clang = "clang";
 	string dstep = "dstep";
+	string cmake = "cmake";
+	string generator;
+	string config = "Release";
+	string osxArch;
+	auto buildDir = buildPath(root, "build", "box3d-shared");
 	bool doublePrecision;
 	bool check;
 
@@ -38,6 +43,7 @@ int main(string[] args)
 			root = absolutePath(args[i]);
 			submodule = buildPath(root, "box3d");
 			outputPath = buildPath(root, "source", "bindbc", "box3d", "package.d");
+			buildDir = buildPath(root, "build", "box3d-shared");
 			break;
 		case "--submodule":
 			if (++i == args.length) return usageError("--submodule requires a path");
@@ -54,6 +60,26 @@ int main(string[] args)
 		case "--dstep":
 			if (++i == args.length) return usageError("--dstep requires an executable");
 			dstep = args[i];
+			break;
+		case "--build-dir":
+			if (++i == args.length) return usageError("--build-dir requires a path");
+			buildDir = absolutePath(buildPath(root, args[i]));
+			break;
+		case "--cmake":
+			if (++i == args.length) return usageError("--cmake requires an executable");
+			cmake = args[i];
+			break;
+		case "--generator":
+			if (++i == args.length) return usageError("--generator requires a name");
+			generator = args[i];
+			break;
+		case "--config":
+			if (++i == args.length) return usageError("--config requires a configuration");
+			config = args[i];
+			break;
+		case "--osx-arch":
+			if (++i == args.length) return usageError("--osx-arch requires an architecture");
+			osxArch = args[i];
 			break;
 		case "--double-precision":
 			doublePrecision = true;
@@ -85,6 +111,28 @@ int main(string[] args)
 		stderr.writeln("Refusing to generate bindings inside the box3d submodule: ", outputPath);
 		return 2;
 	}
+	if (insideDirectory(buildDir, submodule))
+	{
+		stderr.writeln("Refusing to create build output inside the box3d submodule: ", buildDir);
+		return 2;
+	}
+	version (Windows)
+	{
+		if (!generator.length) generator = "NMake Makefiles";
+	}
+	version (OSX)
+	{
+	}
+	else
+	{
+		if (osxArch.length)
+		{
+			stderr.writeln("--osx-arch can only be used on macOS.");
+			return 2;
+		}
+	}
+	if (buildBox3dShared(cmake, generator, config, osxArch, submodule, buildDir) != 0)
+		return 2;
 
 	string[] headers;
 	foreach (header; headerNames)
@@ -798,7 +846,79 @@ int usageError(string message)
 
 void printUsage()
 {
-	writeln("Usage: rdmd tools/generate_bindings.d [--root PATH] [--submodule PATH] [--output PATH] [--clang PATH] [--dstep PATH] [--double-precision] [--check]");
+	writeln("Usage: rdmd tools/generate_bindings.d [options]");
+	writeln("  Builds box3d as a shared library, then generates/checks BindBC bindings.");
+	writeln("  --root PATH              Repository root");
+	writeln("  --submodule PATH         Box3D submodule directory");
+	writeln("  --build-dir PATH         CMake build directory (outside submodule)");
+	writeln("  --output PATH            Generated BindBC module path");
+	writeln("  --generator NAME         CMake generator (Windows defaults to NMake/MSVC)");
+	writeln("  --config NAME            CMake configuration (default Release)");
+	writeln("  --osx-arch ARCH          Apple architecture, e.g. arm64 or universal");
+	writeln("  --cmake PATH             CMake executable");
+	writeln("  --clang PATH             Clang executable for header preprocessing");
+	writeln("  --dstep PATH             DStep executable");
+	writeln("  --double-precision       Generate the double-precision ABI");
+	writeln("  --check                  Compare generated bindings without writing them");
+}
+
+int buildBox3dShared(string cmake, string generator, string config, string osxArch, string submodule,
+	string buildDir)
+{
+	string[] configure = [cmake, "-S", submodule, "-B", buildDir,
+		buildSetting("CMAKE_BUILD_TYPE", config),
+		"-DBUILD_SHARED_LIBS=ON",
+		"-DBOX3D_SAMPLES=OFF",
+		"-DBOX3D_BENCHMARKS=OFF",
+		"-DBOX3D_UNIT_TESTS=OFF",
+		"-DBOX3D_DOCS=OFF"];
+	if (generator.length) configure ~= ["-G", generator];
+	if (osxArch.length) configure ~= buildSetting("CMAKE_OSX_ARCHITECTURES", osxArch);
+
+	auto result = execute(configure);
+	if (result.status != 0) return reportProcessError("CMake configure", result);
+	result = execute([cmake, "--build", buildDir, "--config", config, "--target", "box3d"]);
+	if (result.status != 0) return reportProcessError("CMake build", result);
+
+	string[] libraryNames;
+	version (Windows) libraryNames = ["box3d.dll"];
+	else version (OSX) libraryNames = ["libbox3d.dylib"];
+	else libraryNames = ["libbox3d.so"];
+	string[] libraries;
+	foreach (entry; dirEntries(buildDir, SpanMode.depth))
+	{
+		auto fileName = baseName(entry.name);
+		foreach (libraryName; libraryNames)
+		{
+			if (fileName == libraryName)
+				libraries ~= entry.name;
+			else if (libraryName == "libbox3d.so")
+			{
+				auto versionedNamePrefix = appender!string;
+				versionedNamePrefix.put(libraryName);
+				versionedNamePrefix.put('.');
+				if (startsWith(fileName, versionedNamePrefix.data)) libraries ~= entry.name;
+			}
+		}
+	}
+	if (!libraries.length)
+	{
+		stderr.writeln("CMake succeeded but no Box3D shared library was found under ", buildDir, ".");
+		return 2;
+	}
+	writeln("Built Box3D shared library:");
+	foreach (library; libraries) writeln("  ", library);
+	return 0;
+}
+
+string buildSetting(string name, string value)
+{
+	auto setting = appender!string;
+	setting.put("-D");
+	setting.put(name);
+	setting.put('=');
+	setting.put(value);
+	return setting.data;
 }
 
 unittest
